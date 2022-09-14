@@ -6,27 +6,27 @@ from cfn_flip import to_json
 import argparse
 
 
-def resolvePaths(template, prop, loop_check, paths):
+def resolvePaths(template, prop, loop_check, paths, exclusions):
     if isinstance(prop, dict):
         if 'Ref' in prop:
-            if prop['Ref'] in template['Resources'].keys():
+            if prop['Ref'] in template['Resources'].keys() and prop['Ref'] not in exclusions:
                 paths += [prop['Ref']]
         elif 'Fn::GetAtt' in prop:
-            if prop['Fn::GetAtt'][0] in template['Resources'].keys():
+            if prop['Fn::GetAtt'][0] in template['Resources'].keys() and prop['Fn::GetAtt'][0] not in exclusions:
                 paths += [prop['GetAtt'][0]]
         elif 'Fn::Sub' in prop:
             substr = prop['Fn::Sub']
-            exclusions = []
+            sub_exclusions = exclusions
             if isinstance(prop['Fn::Sub'], list) and not isinstance(prop['Fn::Sub'], str):
                 substr = prop['Fn::Sub'][0]
-                exclusions = prop['Fn::Sub'][1].keys()
+                sub_exclusions += prop['Fn::Sub'][1].keys()
             r1 = re.findall(r"\$\{(\w+)", substr)
-            paths = [x for x in r1 if x not in exclusions]
+            paths = [x for x in r1 if x not in sub_exclusions]
         for v in prop.values():
-            paths = resolvePaths(template, v, loop_check, paths)
+            paths = resolvePaths(template, v, loop_check, paths, exclusions)
     elif isinstance(prop, list) and not isinstance(prop, str):
         for listitem in prop:
-            paths = resolvePaths(template, listitem, loop_check, paths)
+            paths = resolvePaths(template, listitem, loop_check, paths, exclusions)
     
     return paths
 
@@ -45,7 +45,7 @@ def getFullPaths(res_paths, target, current_paths):
     return new_paths
 
 
-def generateTemplate(original_template):
+def generateTemplate(original_template, exclusions):
     template = json.loads(to_json(original_template))
 
     res_paths = {}
@@ -54,7 +54,7 @@ def generateTemplate(original_template):
         if template['Resources'][k].get('Properties') is not None:
             prop = template['Resources'][k]['Properties']
         
-        res_paths[k] = resolvePaths(template, prop, [k], [])
+        res_paths[k] = resolvePaths(template, prop, [k], [], exclusions + ['AWS'])
 
     for k in template['Resources'].keys():
         fullpaths = getFullPaths(res_paths, k, [[k]])
@@ -91,7 +91,7 @@ if __name__ == "__main__":
         with open(sys.argv[1]) as f:
             file_content = f.read()
 
-        print(generateTemplate(file_content))
+        print(generateTemplate(file_content, []))
     elif args.stack is not None:
         session = boto3.session.Session(profile_name=args.profile)
         cfnclient = session.client('cloudformation', region_name=args.region)
@@ -108,8 +108,11 @@ if __name__ == "__main__":
             sys.exit('too many returned stacks')
 
         stack_params = []
+        parameter_names = []
         if 'Parameters' in stacks[0]:
             stack_params = stacks[0]['Parameters']
+            for stack_param in stack_params:
+                parameter_names.append(stack_param['ParameterKey'])
 
         original_template = ''
         try:
@@ -126,7 +129,7 @@ if __name__ == "__main__":
         if not isinstance(original_template, str):
             original_template = json.dumps(original_template)
 
-        updated_template = generateTemplate(original_template)
+        updated_template = generateTemplate(original_template, parameter_names)
 
         cfnclient.update_stack(
             StackName=stacks[0]['StackId'],
