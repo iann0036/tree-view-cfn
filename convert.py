@@ -13,7 +13,7 @@ def resolvePaths(template, prop, loop_check, paths, exclusions):
                 paths += [prop['Ref']]
         elif 'Fn::GetAtt' in prop:
             if prop['Fn::GetAtt'][0] in template['Resources'].keys() and prop['Fn::GetAtt'][0] not in exclusions:
-                paths += [prop['GetAtt'][0]]
+                paths += [prop['Fn::GetAtt'][0]]
         elif 'Fn::Sub' in prop:
             substr = prop['Fn::Sub']
             sub_exclusions = exclusions
