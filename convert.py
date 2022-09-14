@@ -88,7 +88,7 @@ if __name__ == "__main__":
     
     if args.filename is not None:
         file_content = ''
-        with open(sys.argv[1]) as f:
+        with open(args.filename) as f:
             file_content = f.read()
 
         print(generateTemplate(file_content, []))
